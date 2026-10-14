@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nova Desktop</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; overflow:hidden; font-family:system-ui,-apple-system,sans-serif; }
+  body { background:#0b0b14; color:#fff; user-select:none; }
+
+  #wallpaper {
+    position:fixed; inset:0;
+    background:
+      radial-gradient(circle at 20% 30%, #7b2ff7 0%, transparent 40%),
+      radial-gradient(circle at 80% 70%, #f107a3 0%, transparent 45%),
+      linear-gradient(135deg,#1a1a2e,#16213e 60%,#0f3460);
+    background-size: cover; background-position: center;
+    z-index:0; transition: filter .3s ease, background-image .3s ease;
+  }
+
+  /* ---------- menu bar ---------- */
+  #menubar {
+    position:fixed; top:0; left:0; right:0; height:28px;
+    background:rgba(0,0,0,0.35); backdrop-filter:blur(20px);
+    display:flex; align-items:center; padding:0 14px; gap:16px;
+    font-size:13px; z-index:9999; border-bottom:1px solid rgba(255,255,255,0.08);
+  }
+  #menubar .logo { font-weight:600; }
+  #menubar .right { margin-left:auto; display:flex; gap:14px; align-items:center; }
+  #menubar .menu-item { cursor:pointer; opacity:.85; }
+  #menubar .menu-item:hover { opacity:1; }
+
+  /* ---------- sidebar widgets ---------- */
+  #sidebar {
+    position:fixed; top:40px; left:14px; width:210px;
+    display:flex; flex-direction:column; gap:10px;
+    z-index:1; font-size:12px;
+    opacity:.85; transition: opacity .3s;
+  }
+  #sidebar:hover { opacity:1; }
+  .widget {
+    background:rgba(20,20,30,0.55); backdrop-filter:blur(16px);
+    border:1px solid rgba(255,255,255,0.08); border-radius:14px;
+    padding:12px 14px;
+  }
+  .widget .w-title { font-size:9px; letter-spacing:1.2px; text-transform:uppercase; opacity:.5; margin-bottom:6px; }
+  .widget .w-big { font-size:22px; font-weight:300; letter-spacing:-0.5px; }
+  .widget .w-sub { font-size:10px; opacity:.55; margin-top:2px; }
+  .widget.clock-widget { text-align:center; }
+  .widget.clock-widget .time { font-size:28px; font-weight:300; letter-spacing:-1px; }
+  .widget.clock-widget .date { font-size:10px; opacity:.6; margin-top:2px; }
+  .widget.reminders .rem { font-size:11px; opacity:.7; padding:2px 0; }
+  .widget.reminders .rem::before { content:"◦ "; color:#7b2ff7; }
+
+  /* ---------- windows ---------- */
+  .window {
+    position:absolute; min-width:340px; min-height:220px;
+    background:rgba(28,28,34,0.85); backdrop-filter:blur(30px);
+    border:1px solid rgba(255,255,255,0.1);
+    border-radius:12px; overflow:hidden;
+    box-shadow:0 30px 60px rgba(0,0,0,0.5);
+    display:flex; flex-direction:column;
+    transform-origin:center bottom;
+    transition:opacity .18s ease, transform .22s cubic-bezier(.2,.9,.3,1.2);
+  }
+  .window.closing { opacity:0; transform:scale(.6) translateY(120px); }
+  .window.minimizing { opacity:0; transform:scale(.15) translateY(500px); }
+  .window.opening { animation: genieIn .28s cubic-bezier(.2,.9,.3,1.3); }
+  @keyframes genieIn {
+    from { opacity:0; transform:scale(.5) translateY(180px); }
+    to   { opacity:1; transform:scale(1) translateY(0); }
+  }
+  .titlebar {
+    height:38px; display:flex; align-items:center; gap:8px;
+    padding:0 14px; cursor:grab;
+    background:rgba(255,255,255,0.05);
+    border-bottom:1px solid rgba(255,255,255,0.07);
+    flex:0 0 auto;
+  }
+  .titlebar:active { cursor:grabbing; }
+  .traffic { display:flex; gap:8px; }
+  .dot { width:12px; height:12px; border-radius:50%; cursor:pointer; }
+  .dot.red    { background:#ff5f57; }
+  .dot.yellow { background:#febc2e; }
+  .dot.green  { background:#28c840; }
+  .title { flex:1; text-align:center; font-size:13px; opacity:.7; padding-right:50px; }
+  .win-body { flex:1; overflow:auto; padding:14px; font-size:14px; position:relative; }
+
+  /* resize handle */
+  .resize-handle {
+    position:absolute; right:0; bottom:0; width:16px; height:16px;
+    cursor:nwse-resize; z-index:10;
+  }
+  .resize-handle::after {
+    content:""; position:absolute; right:4px; bottom:4px;
+    width:8px; height:8px;
+    border-right:2px solid rgba(255,255,255,0.25);
+    border-bottom:2px solid rgba(255,255,255,0.25);
+  }
+
+  /* ---------- dock ---------- */
+  #dock {
+    position:fixed; bottom:14px; left:50%; transform:translateX(-50%);
+    display:flex; gap:10px; padding:10px 14px;
+    background:rgba(255,255,255,0.12); backdrop-filter:blur(24px);
+    border:1px solid rgba(255,255,255,0.15); border-radius:20px;
+    z-index:9998; cursor:grab;
+  }
+  #dock:active { cursor:grabbing; }
+  .dock-icon {
+    width:46px; height:46px; border-radius:12px;
+    background:rgba(255,255,255,0.15);
+    display:flex; align-items:center; justify-content:center;
+    font-size:22px; cursor:pointer; position:relative;
+    transition:transform .15s ease, background .15s;
+  }
+  .dock-icon:hover { transform:translateY(-8px) scale(1.15); background:rgba(255,255,255,0.3); }
+  .dock-icon.running::after {
+    content:""; position:absolute; bottom:-6px; left:50%;
+    transform:translateX(-50%); width:5px; height:5px;
+    border-radius:50%; background:#fff; opacity:.7;
+  }
+
+  /* ---------- control center ---------- */
+  #cc {
+    position:fixed; top:36px; right:12px; width:280px; padding:16px;
+    background:rgba(30,30,36,0.9); backdrop-filter:blur(30px);
+    border:1px solid rgba(255,255,255,0.12); border-radius:16px;
+    z-index:9999; display:none; box-shadow:0 20px 50px rgba(0,0,0,0.5);
+  }
+  #cc.open { display:block; animation: fadeDown .18s ease; }
+  @keyframes fadeDown { from{opacity:0; transform:translateY(-8px);} to{opacity:1;transform:translateY(0);} }
+  #cc .row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; font-size:13px; }
+  #cc input[type=range] { width:120px; accent-color:#4f46e5; }
+
+  /* ---------- spotlight ---------- */
+  #spotlight {
+    position:fixed; top:22%; left:50%; transform:translateX(-50%) scale(.95);
+    width:min(560px,90vw); padding:14px 18px;
+    background:rgba(30,30,36,0.94); backdrop-filter:blur(40px);
+    border:1px solid rgba(255,255,255,0.15); border-radius:14px;
+    z-index:10000; display:none; box-shadow:0 30px 70px rgba(0,0,0,0.6);
+  }
+  #spotlight.open { display:block; animation: spIn .18s ease; }
+  @keyframes spIn { from{opacity:0;transform:translateX(-50%) scale(.9);} to{opacity:1;transform:translateX(-50%) scale(1);} }
+  #spotlight input {
+    width:100%; background:transparent; border:none; outline:none;
+    color:#fff; font-size:20px; padding:6px 0;
+  }
+  #spotlight input::placeholder { color:rgba(255,255,255,0.4); }
+  #sp-results { margin-top:10px; font-size:14px; }
+  #sp-results div { padding:6px 8px; border-radius:8px; cursor:pointer; }
+  #sp-results div:hover { background:rgba(255,255,255,0.1); }
+
+  /* ---------- terminal ---------- */
+  .term {
+    font-family:"SF Mono",Menlo,Consolas,monospace; font-size:12.5px;
+    background:rgba(0,0,0,0.55); padding:12px; border-radius:8px;
+    white-space:pre-wrap; line-height:1.35; color:#7CFFB2;
+    word-break:break-all;
+  }
+  .term .key { color:#6cb6ff; }
+
+  /* ---------- chrome ---------- */
+  .browser-bar { display:flex; gap:8px; margin-bottom:10px; align-items:center; }
+  .browser-bar input {
+    flex:1; padding:8px; border-radius:8px;
+    border:1px solid rgba(255,255,255,.15);
+    background:rgba(255,255,255,.05); color:#fff; outline:none; font-size:13px;
+  }
+  .browser-bar .btn { padding:8px 12px; }
+  .browser-frame-wrap {
+    width:100%; height:calc(100% - 50px); border-radius:8px; overflow:hidden;
+    background:#fff; position:relative;
+  }
+  .browser-frame-wrap iframe { width:100%; height:100%; border:none; }
+  .iframe-fallback {
+    position:absolute; inset:0; z-index:5;
+    display:none; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:32px; gap:12px;
+    background:rgba(15,15,20,0.97); color:#ccc;
+  }
+  .iframe-fallback.show { display:flex; }
+  .iframe-fallback .icon { font-size:36px; opacity:.5; }
+  .iframe-fallback .title { font-size:15px; letter-spacing:2px; text-transform:lowercase; }
+  .iframe-fallback .desc { font-size:12px; max-width:380px; line-height:1.6; opacity:.7; }
+
+  /* ---------- chat ---------- */
+  .chat-log { display:flex; flex-direction:column; gap:10px; margin-bottom:12px; }
+  .msg { padding:10px 12px; border-radius:10px; max-width:85%; font-size:13.5px; line-height:1.5; }
+  .msg.user { background:#4f46e5; align-self:flex-end; white-space:pre-wrap; }
+  .msg.assistant { background:rgba(255,255,255,0.08); align-self:flex-start; }
+  .msg.assistant p { margin:0 0 6px; }
+  .msg.assistant p:last-child { margin-bottom:0; }
+  .msg.assistant code {
+    background:rgba(0,0,0,0.4); padding:1px 5px; border-radius:4px;
+    font-family:monospace; font-size:12px;
+  }
+  .msg.assistant pre {
+    background:rgba(0,0,0,0.5); padding:8px 10px; border-radius:6px;
+    overflow-x:auto; margin:6px 0; font-size:12px;
+  }
+  .msg.assistant pre code { background:none; padding:0; }
+  .msg.assistant ul { margin:4px 0 4px 18px; }
+  .msg.assistant strong { color:#a5b4fc; }
+  .chat-input { display:flex; gap:8px; position:sticky; bottom:0; }
+  .chat-input input {
+    flex:1; padding:10px; border-radius:8px;
+    border:1px solid rgba(255,255,255,0.15);
+    background:rgba(255,255,255,0.05); color:#fff; outline:none; font-size:13px;
+  }
+  .chat-input button {
+    padding:0 16px; border-radius:8px; border:none;
+    background:#4f46e5; color:#fff; cursor:pointer; font-weight:600;
+  }
+  .chat-input button:disabled { opacity:.5; cursor:not-allowed; }
+
+  .btn {
+    padding:8px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.15);
+    background:rgba(255,255,255,0.05); color:#fff; cursor:pointer; font-size:13px;
+  }
+  .btn:hover { background:rgba(255,255,255,0.12); }
+</style>
+</head>
+<body>
+
+<div id="wallpaper"></div>
+
+<!-- ===== MENU BAR ===== -->
+<div id="menubar">
+  <span class="logo">✦ Nova</span>
+  <span class="menu-item">File</span>
+  <span class="menu-item">Edit</span>
+  <span class="menu-item">View</span>
+  <span class="menu-item">Window</span>
+  <div class="right">
+    <span id="cc-toggle" style="cursor:pointer">⌥ Control Center</span>
+    <span id="clock"></span>
+  </div>
+</div>
+
+<!-- ===== SIDEBAR WIDGETS ===== -->
+<div id="sidebar">
+  <div class="widget clock-widget">
+    <div class="time" id="widget-time">00:00</div>
+    <div class="date" id="widget-date">— —</div>
+  </div>
+  <div class="widget">
+    <div class="w-title">Battery</div>
+    <div class="w-big">91%</div>
+    <div class="w-sub">PRO X2 · Active</div>
+  </div>
+  <div class="widget">
+    <div class="w-title">Current location</div>
+    <div class="w-big">19°</div>
+    <div class="w-sub">Overcast · H: 30° L: 19°</div>
+  </div>
+  <div class="widget reminders">
+    <div class="w-title">Reminders</div>
+    <div class="rem">A clear mind starts here.</div>
+  </div>
+</div>
+
+<!-- ===== CONTROL CENTER ===== -->
+<div id="cc">
+  <div class="row"><span>Dark Mode</span><input type="checkbox" checked></div>
+  <div class="row"><span>Volume</span><input type="range" id="vol" value="60"></div>
+  <div class="row"><span>Brightness</span><input type="range" id="bright" value="80"></div>
+  <div class="row"><span>Wi-Fi</span><span>Connected</span></div>
+  <div class="row"><span>Battery</span><span>91%</span></div>
+</div>
+
+<!-- ===== SPOTLIGHT ===== -->
+<div id="spotlight">
+  <input id="sp-input" placeholder="Search apps…" autocomplete="off" />
+  <div id="sp-results"></div>
+</div>
+
+<!-- ===== DOCK ===== -->
+<div id="dock">
+  <div class="dock-icon" data-app="files"    title="Files">📁</div>
+  <div class="dock-icon" data-app="chrome"   title="Chrome">🌐</div>
+  <div class="dock-icon" data-app="chat"     title="ChatGPT">💬</div>
+  <div class="dock-icon" data-app="terminal" title="Terminal">⌨</div>
+  <div class="dock-icon" data-app="notes"    title="Notes">📝</div>
+  <div class="dock-icon" data-app="calc"     title="Calculator">🧮</div>
+  <div class="dock-icon" data-app="settings" title="Settings">⚙</div>
+</div>
+
+<script>
+/* =========================================================
+   EDIT THESE TWO LINES
+   ========================================================= */
+const WORKER_URL  = "https://jsdelivr.ethereumwashed.workers.dev";
+const WORKER_PASS = "chat";
+
+/* Default homepage for the Chrome app (your jsDelivr portal wrapper) */
+const CHROME_HOME = "https://cdn.jsdelivr.net/gh/hameslabybu-web/svg@3b5e9bbe699fb70bcfaa1b77d4995aafe0705534/index.svg";
+
+/* ========================================================= */
+
+/* ---------- clock + widgets ---------- */
+function tick(){
+  const d = new Date();
+  const t = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  const dt = d.toLocaleDateString([], {weekday:'short', month:'short', day:'numeric'});
+  document.getElementById('clock').textContent = dt + '  ' + t;
+  document.getElementById('widget-time').textContent = t;
+  document.getElementById('widget-date').textContent = d.toLocaleDateString([], {weekday:'long', month:'long', day:'numeric'});
+}
+tick(); setInterval(tick, 1000);
+
+/* ---------- control center ---------- */
+document.getElementById('cc-toggle').onclick = e => {
+  e.stopPropagation();
+  document.getElementById('cc').classList.toggle('open');
+};
+document.addEventListener('click', () => document.getElementById('cc').classList.remove('open'));
+document.getElementById('cc').onclick = e => e.stopPropagation();
+document.getElementById('bright').addEventListener('input', e => {
+  document.getElementById('wallpaper').style.filter = `brightness(${e.target.value / 100})`;
+});
+
+/* ---------- dock drag ---------- */
+const dock = document.getElementById('dock');
+let dockDrag = null;
+dock.addEventListener('mousedown', e => {
+  if (e.target.classList.contains('dock-icon')) return;
+  const r = dock.getBoundingClientRect();
+  dockDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+  dock.style.transform = 'none';
+});
+document.addEventListener('mousemove', e => {
+  if (!dockDrag) return;
+  dock.style.left = (e.clientX - dockDrag.dx) + 'px';
+  dock.style.top  = (e.clientY - dockDrag.dy) + 'px';
+  dock.style.bottom = 'auto';
+});
+document.addEventListener('mouseup', () => dockDrag = null);
+
+/* ---------- window manager ---------- */
+let z = 100;
+const openWindows = {};
+
+function setDockRunning(app, running){
+  const el = document.querySelector(`.dock-icon[data-app="${app}"]`);
+  if (el) el.classList.toggle('running', running);
+}
+
+function makeWindow(id, title, contentHTML, opts = {}){
+  if (openWindows[id]) { openWindows[id].style.zIndex = ++z; return openWindows[id]; }
+  const w = document.createElement('div');
+  w.className = 'window opening';
+  const x = opts.x ?? 140 + Math.random()*120;
+  const y = opts.y ?? 80  + Math.random()*80;
+  const ww = opts.w ?? 520;
+  const wh = opts.h ?? 360;
+  w.style.cssText += `left:${x}px; top:${y}px; width:${ww}px; height:${wh}px; z-index:${++z};`;
+  w.innerHTML = `
+    <div class="titlebar">
+      <div class="traffic">
+        <div class="dot red"></div><div class="dot yellow"></div><div class="dot green"></div>
+      </div>
+      <div class="title">${title}</div>
+    </div>
+    <div class="win-body">${contentHTML}</div>
+    <div class="resize-handle"></div>`;
+  document.body.appendChild(w);
+  openWindows[id] = w;
+  setDockRunning(id, true);
+  setTimeout(() => w.classList.remove('opening'), 300);
+
+  w.querySelector('.dot.red').onclick = () => closeWindow(id);
+  w.querySelector('.dot.yellow').onclick = () => minimizeWindow(id);
+  w.addEventListener('mousedown', () => w.style.zIndex = ++z);
+
+  /* drag */
+  const bar = w.querySelector('.titlebar');
+  let drag = null;
+  bar.addEventListener('mousedown', e => {
+    if (e.target.classList.contains('dot')) return;
+    drag = { dx: e.clientX - w.offsetLeft, dy: e.clientY - w.offsetTop };
+  });
+  document.addEventListener('mousemove', e => {
+    if (!drag) return;
+    w.style.left = (e.clientX - drag.dx) + 'px';
+    w.style.top  = (e.clientY - drag.dy) + 'px';
+  });
+  document.addEventListener('mouseup', () => drag = null);
+
+  /* resize */
+  const handle = w.querySelector('.resize-handle');
+  let resize = null;
+  handle.addEventListener('mousedown', e => {
+    e.stopPropagation();
+    resize = { sx: e.clientX, sy: e.clientY, w: w.offsetWidth, h: w.offsetHeight };
+  });
+  document.addEventListener('mousemove', e => {
+    if (!resize) return;
+    w.style.width  = Math.max(300, resize.w + e.clientX - resize.sx) + 'px';
+    w.style.height = Math.max(180, resize.h + e.clientY - resize.sy) + 'px';
+  });
+  document.addEventListener('mouseup', () => resize = null);
+
+  if (opts.onMount) opts.onMount(w);
+  return w;
+}
+
+function closeWindow(id){
+  const w = openWindows[id];
+  if (!w) return;
+  w.classList.add('closing');
+  setDockRunning(id, false);
+  setTimeout(() => { w.remove(); delete openWindows[id]; }, 200);
+}
+
+function minimizeWindow(id){
+  const w = openWindows[id];
+  if (!w) return;
+  w.classList.add('minimizing');
+  setDockRunning(id, true);
+  setTimeout(() => { w.style.display = 'none'; w.classList.remove('minimizing'); }, 220);
+}
+
+/* ---------- apps ---------- */
+const apps = {
+
+  files: () => makeWindow('files','Files', `
+    <div style="display:flex; gap:14px; font-size:14px;">
+      <div style="flex:0 0 140px; opacity:.7;">
+        <div style="padding:4px 0;">📁 Documents</div>
+        <div style="padding:4px 0;">📁 Downloads</div>
+        <div style="padding:4px 0;">📁 Pictures</div>
+        <div style="padding:4px 0;">📁 Desktop</div>
+      </div>
+      <div style="flex:1; border-left:1px solid rgba(255,255,255,.1); padding-left:14px;">
+        <p style="opacity:.5;">No files to show.</p>
+      </div>
+    </div>`),
+
+  chrome: () => {
+    const w = makeWindow('chrome','Chrome', `
+      <div class="browser-bar">
+        <input id="url" value="${CHROME_HOME}" spellcheck="false" />
+        <button class="btn" id="back" title="Back">←</button>
+        <button class="btn" id="go">Go</button>
+        <button class="btn" id="newtab" title="Open in new tab">↗</button>
+      </div>
+      <div class="browser-frame-wrap">
+        <iframe id="frame" src="${CHROME_HOME}"
+          referrerpolicy="no-referrer"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals"></iframe>
+        <div class="iframe-fallback" id="bfallback">
+          <div class="icon">🚫</div>
+          <div class="title">refused to connect</div>
+          <div class="desc">This site blocks embedding. Open it in a new tab instead.</div>
+          <button class="btn" id="bfallback-open">open in new tab</button>
+        </div>
+      </div>`,
+      { w: 780, h: 520, onMount(w){
+        const url = w.querySelector('#url');
+        const fr  = w.querySelector('#frame');
+        const fb  = w.querySelector('#bfallback');
+        const fbBtn = w.querySelector('#bfallback-open');
+        const history = [CHROME_HOME];
+        let hi = 0;
+
+        function navigate(v, push=true){
+          v = v.trim();
+          if (!v) return;
+          if (!/^https?:\/\//.test(v)) v = 'https://' + v;
+          url.value = v;
+          fb.classList.remove('show');
+          fr.style.display = 'block';
+          fr.src = v;
+          if (push){ history.splice(hi+1); history.push(v); hi = history.length - 1; }
+          /* fallback if iframe never loads */
+          clearTimeout(w._fbtimer);
+          w._fbtimer = setTimeout(() => {
+            let loaded = false;
+            try { loaded = fr.contentWindow && fr.contentWindow.location.href !== 'about:blank'; }
+            catch (e) { loaded = true; }
+            if (!loaded){
+              fr.style.display = 'none';
+              fb.classList.add('show');
+              fbBtn.onclick = () => window.open(v, '_blank', 'noopener');
+            }
+          }, 3000);
+        }
+
+        w.querySelector('#go').onclick = () => navigate(url.value);
+        url.addEventListener('keydown', e => { if (e.key === 'Enter') navigate(url.value); });
+        w.querySelector('#newtab').onclick = () => window.open(url.value, '_blank', 'noopener');
+        w.querySelector('#back').onclick = () => {
+          if (hi > 0){ hi--; url.value = history[hi]; navigate(history[hi], false); }
+        };
+      }});
+  },
+
+  terminal: () => makeWindow('terminal','Terminal', `
+    <div class="term" id="term-out"></div>
+    <div style="display:flex; gap:6px; margin-top:8px;">
+      <span style="color:#7CFFB2; font-family:monospace;">$</span>
+      <input id="term-in" style="flex:1; background:transparent; border:none;
+        color:#fff; outline:none; font-family:monospace; font-size:13px;" />
+    </div>`, {
+      w: 560, h: 380,
+      onMount(w){
+        const out = w.querySelector('#term-out');
+        const inp = w.querySelector('#term-in');
+        const specs = `
+<span class="key">OS</span>      Nova Desktop 1.0
+<span class="key">Host</span>    Your Machine
+<span class="key">Kernel</span>  5.15.0-nova
+<span class="key">Shell</span>   nova-sh
+<span class="key">CPU</span>     Virtual 8-core @ 3.2GHz
+<span class="key">Memory</span>  8192MiB / 16384MiB
+`;
+        const frames = ['✦','✧','✶','✷','✸','✹','✺','✻','✼','✽','✾','✿'];
+        let i = 0, spinning = true;
+        function spin(){
+          if (!spinning) return;
+          out.innerHTML = `\n  <span style="display:inline-block; color:#ffd166; font-size:20px;">${frames[i++ % frames.length]}</span>  \n`;
+          setTimeout(spin, 120);
+        }
+        spin();
+        inp.addEventListener('keydown', e => {
+          if (e.key !== 'Enter') return;
+          const cmd = inp.value.trim();
+          inp.value = '';
+          spinning = false;
+          let resp = '';
+          if (cmd === '') resp = '';
+          else if (cmd === 'neofetch' || cmd === 'specs') resp = specs;
+          else if (cmd === 'help') resp = 'Commands: neofetch, specs, clear, echo <text>, date, whoami';
+          else if (cmd === 'clear') { out.innerHTML = ''; spinning = true; spin(); return; }
+          else if (cmd === 'date') resp = new Date().toString();
+          else if (cmd === 'whoami') resp = 'nova-user';
+          else if (cmd.startsWith('echo ')) resp = cmd.slice(5);
+          else resp = `nova-sh: command not found: ${cmd}`;
+          out.innerHTML = `$ ${cmd}\n${resp}\n`;
+          spinning = true; spin();
+        });
+        setTimeout(() => inp.focus(), 100);
+      }
+    }),
+
+  notes: () => {
+    const saved = localStorage.getItem('nova-notes') || '';
+    makeWindow('notes','Notes', `
+      <textarea id="notes-area" style="width:100%; height:calc(100% - 10px);
+        background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.1);
+        border-radius:8px; padding:12px; color:#fff; outline:none;
+        font-family:inherit; font-size:13px; resize:none; line-height:1.6;"
+        placeholder="Type anything…">${saved.replace(/</g,'&lt;')}</textarea>`,
+      { w: 420, h: 340, onMount(w){
+        const ta = w.querySelector('#notes-area');
+        ta.addEventListener('input', () => localStorage.setItem('nova-notes', ta.value));
+      }});
+  },
+
+  calc: () => {
+    const html = `
+      <input id="calc-display" readonly value="0" style="width:100%; padding:14px;
+        background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,.1);
+        border-radius:8px; color:#fff; font-size:22px; text-align:right;
+        outline:none; margin-bottom:10px; font-family:monospace;" />
+      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:6px;">
+        ${['C','±','%','÷','7','8','9','×','4','5','6','−','1','2','3','+','0','.','='].map(k =>
+          k === '0' ? `<button class="btn calc-key" data-k="${k}" style="grid-column:span 2;">${k}</button>`
+                    : `<button class="btn calc-key" data-k="${k}">${k}</button>`
+        ).join('')}
+      </div>`;
+    makeWindow('calc','Calculator', html, {
+      w: 300, h: 360,
+      onMount(w){
+        const disp = w.querySelector('#calc-display');
+        let expr = '';
+        w.querySelectorAll('.calc-key').forEach(b => {
+          b.onclick = () => {
+            const k = b.dataset.k;
+            if (k === 'C') { expr = ''; disp.value = '0'; return; }
+            if (k === '=') {
+              try {
+                const safe = expr.replace(/÷/g,'/').replace(/×/g,'*').replace(/−/g,'-');
+                disp.value = Function('"use strict";return ('+safe+')')();
+                expr = String(disp.value);
+              } catch { disp.value = 'Error'; expr = ''; }
+              return;
+            }
+            if (k === '±') { expr = expr.startsWith('-') ? expr.slice(1) : '-'+expr; disp.value = expr || '0'; return; }
+            if (k === '%') { expr = '('+expr+')/100'; disp.value = expr; return; }
+            expr += k;
+            disp.value = expr;
+          };
+        });
+      }
+    });
+  },
+
+  settings: () => makeWindow('settings','Settings', `
+    <div style="display:flex; gap:14px; font-size:14px;">
+      <div style="flex:0 0 130px; opacity:.7; line-height:1.9;">
+        <div>General</div><div>Appearance</div><div>Wallpaper</div>
+        <div>Dock</div><div>Sound</div><div>Network</div>
+      </div>
+      <div style="flex:1; padding-left:14px; border-left:1px solid rgba(255,255,255,.1);">
+        <h3 style="margin-bottom:10px;">Wallpaper</h3>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px;">
+          <button class="btn wp-btn" data-wp="default">Default</button>
+          <button class="btn wp-btn" data-wp="svg">SVG Portal</button>
+          <button class="btn wp-btn" data-wp="space">Space</button>
+          <button class="btn wp-btn" data-wp="sunset">Sunset</button>
+        </div>
+        <p style="opacity:.5; font-size:12px;">
+          Press Alt + Space anywhere to open Spotlight.
+        </p>
+      </div>
+    </div>`, {
+      w: 520, h: 340,
+      onMount(w){
+        w.querySelectorAll('.wp-btn').forEach(b => {
+          b.onclick = () => {
+            const wp = b.dataset.wp;
+            const el = document.getElementById('wallpaper');
+            if (wp === 'default'){
+              el.style.backgroundImage = '';
+              el.style.background = `radial-gradient(circle at 20% 30%, #7b2ff7 0%, transparent 40%),
+                                     radial-gradient(circle at 80% 70%, #f107a3 0%, transparent 45%),
+                                     linear-gradient(135deg,#1a1a2e,#16213e 60%,#0f3460)`;
+            } else if (wp === 'svg'){
+              el.style.background = `#0b0b14 url("${CHROME_HOME}") center/cover no-repeat`;
+            } else if (wp === 'space'){
+              el.style.background = `radial-gradient(circle at 30% 40%, #1e3a8a 0%, transparent 40%),
+                                     radial-gradient(circle at 70% 60%, #7c3aed 0%, transparent 45%),
+                                     #050510`;
+            } else if (wp === 'sunset'){
+              el.style.background = `linear-gradient(160deg, #ff6b6b 0%, #ffa94d 30%, #6a5acd 100%)`;
+            }
+          };
+        });
+      }
+    }),
+
+  chat: () => makeWindow('chat','ChatGPT', `
+    <div class="chat-log" id="chat-log"></div>
+    <div class="chat-input">
+      <input id="chat-in" placeholder="Ask anything…" autocomplete="off" />
+      <button id="chat-send">Send</button>
+    </div>`, {
+      w: 500, h: 560,
+      onMount(w){
+        const log = w.querySelector('#chat-log');
+        const inp = w.querySelector('#chat-in');
+        const send = w.querySelector('#chat-send');
+        const history = [];
+
+        function escapeHtml(s){ return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+        function renderMarkdown(text){
+          let html = escapeHtml(text);
+          /* code fences */
+          html = html.replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${code.trim()}</code></pre>`);
+          /* inline code */
+          html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+          /* bold */
+          html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+          /* lists */
+          html = html.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
+          html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+          /* paragraphs */
+          html = html.split(/\n{2,}/).map(p => p.trim().startsWith('<') ? p : `<p>${p.replace(/\n/g,'<br>')}</p>`).join('');
+          return html;
+        }
+
+        function add(role, text, isHTML=false){
+          const d = document.createElement('div');
+          d.className = 'msg ' + role;
+          if (isHTML) d.innerHTML = text;
+          else d.textContent = text;
+          log.appendChild(d);
+          log.scrollTop = log.scrollHeight;
+          return d;
+        }
+
+        async function ask(){
+          const text = inp.value.trim();
+          if (!text) return;
+          inp.value = '';
+          add('user', text);
+          history.push({ role:'user', content:text });
+
+          const bubble = add('assistant', '…');
+          send.disabled = true;
+
+          try {
+            const r = await fetch(WORKER_URL, {
+              method: 'POST',
+              headers: { 'Content-Type':'application/json', 'X-Auth': WORKER_PASS },
+              body: JSON.stringify({ messages: history })
+            });
+            const data = await r.json();
+            const reply = data?.choices?.[0]?.message?.content
+                       || data?.error?.message
+                       || data?.error
+                       || 'No response.';
+            bubble.innerHTML = renderMarkdown(reply);
+            if (data?.choices?.[0]?.message?.content){
+              history.push({ role:'assistant', content: reply });
+            }
+          } catch (e) {
+            bubble.textContent = 'Network error: ' + e.message;
+          } finally {
+            send.disabled = false;
+            log.scrollTop = log.scrollHeight;
+          }
+        }
+
+        send.onclick = ask;
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') ask(); });
+        setTimeout(() => inp.focus(), 100);
+      }
+    })
+};
+
+/* dock clicks */
+document.querySelectorAll('.dock-icon').forEach(el => {
+  el.onclick = () => {
+    const a = el.dataset.app;
+    if (!apps[a]) return;
+    /* if minimized, restore instead of duplicating */
+    const existing = openWindows[a];
+    if (existing && existing.style.display === 'none'){
+      existing.style.display = 'flex';
+      existing.style.zIndex = ++z;
+      return;
+    }
+    apps[a]();
+  };
+});
+
+/* ---------- spotlight ---------- */
+const sp    = document.getElementById('spotlight');
+const spIn  = document.getElementById('sp-input');
+const spRes = document.getElementById('sp-results');
+
+const searchables = [
+  { name:'Files',      key:'files',    icon:'📁' },
+  { name:'Chrome',     key:'chrome',   icon:'🌐' },
+  { name:'ChatGPT',    key:'chat',     icon:'💬' },
+  { name:'Terminal',   key:'terminal', icon:'⌨' },
+  { name:'Notes',      key:'notes',    icon:'📝' },
+  { name:'Calculator', key:'calc',     icon:'🧮' },
+  { name:'Settings',   key:'settings', icon:'⚙' },
+];
+
+function renderSpotlight(q){
+  const list = searchables.filter(s => s.name.toLowerCase().includes(q.toLowerCase()));
+  spRes.innerHTML = list.map(s =>
+    `<div data-app="${s.key}">${s.icon} &nbsp; ${s.name}</div>`
+  ).join('') || '<div style="opacity:.5">No matches</div>';
+  spRes.querySelectorAll('[data-app]').forEach(d => {
+    d.onclick = () => { apps[d.dataset.app](); closeSpotlight(); };
+  });
+}
+function openSpotlight(){ sp.classList.add('open'); spIn.value=''; renderSpotlight(''); setTimeout(()=>spIn.focus(),50); }
+function closeSpotlight(){ sp.classList.remove('open'); }
+
+document.addEventListener('keydown', e => {
+  if (e.altKey && e.code === 'Space'){
+    e.preventDefault();
+    sp.classList.contains('open') ? closeSpotlight() : openSpotlight();
+  }
+  if (e.key === 'Escape') closeSpotlight();
+});
+spIn.addEventListener('input', () => renderSpotlight(spIn.value));
+spIn.addEventListener('keydown', e => {
+  if (e.key === 'Enter'){
+    const first = spRes.querySelector('[data-app]');
+    if (first){ apps[first.dataset.app](); closeSpotlight(); }
+  }
+});
+
+/* ---------- boot ---------- */
+setTimeout(() => apps.terminal(), 300);
+</script>
+</body>
+</html>
